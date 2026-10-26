@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Suscripciones · Panel</title>
+  <style>
+    :root { color-scheme: dark; --line: rgba(255,255,255,.12); --muted: #b9b9c9; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      background: #0b0b14; color: #f4f4f8;
+    }
+    header {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--line);
+      background: linear-gradient(135deg, rgba(108,77,244,.22), rgba(15,118,110,.18));
+      position: sticky; top: 0; backdrop-filter: blur(8px); z-index: 2;
+    }
+    header h1 { font-size: 17px; margin: 0; }
+    header .tz { font-size: 11px; color: var(--muted); }
+    a { color: #a5b4fc; }
+    .wrap { max-width: 1080px; margin: 0 auto; padding: 20px; }
+    .flash {
+      padding: 12px 14px; border-radius: 10px; margin-bottom: 14px; font-size: 13px;
+      word-break: break-word;
+    }
+    .flash.ok { background: rgba(34,197,94,.14); color: #86efac; border: 1px solid rgba(34,197,94,.3); }
+    .flash.err { background: rgba(239,68,68,.14); color: #fca5a5; border: 1px solid rgba(239,68,68,.3); }
+    .panel {
+      background: rgba(255,255,255,.05); border: 1px solid var(--line);
+      border-radius: 16px; padding: 16px; margin-bottom: 18px;
+    }
+    .panel h2 { font-size: 14px; margin: 0 0 12px; color: var(--muted); font-weight: 600; }
+    form.inline { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    input, select {
+      padding: 9px 11px; border-radius: 9px; border: 1px solid var(--line);
+      background: rgba(0,0,0,.3); color: #fff; font-size: 13px;
+    }
+    input[type=email], input[name=email], input[type=text] { min-width: 200px; flex: 1 1 200px; }
+    button {
+      padding: 9px 13px; border: 0; border-radius: 9px; cursor: pointer;
+      font-size: 13px; font-weight: 600; background: #2b2b3d; color: #fff;
+    }
+    button.primary { background: linear-gradient(135deg, #6c4df4, #0f766e); }
+    button.danger { background: rgba(239,68,68,.18); color: #fca5a5; }
+    button.warn { background: rgba(245,158,11,.18); color: #fcd34d; }
+    button.ok { background: rgba(34,197,94,.18); color: #86efac; }
+    .cards { display: grid; gap: 12px; }
+    .sub {
+      border: 1px solid var(--line); border-radius: 14px; padding: 14px;
+      background: rgba(255,255,255,.03); display: grid; gap: 10px;
+    }
+    .sub.inactive { border-color: rgba(239,68,68,.45); }
+    .sub .top { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+    .sub .email { font-weight: 700; font-size: 15px; word-break: break-all; }
+    .badge {
+      font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 999px;
+      text-transform: uppercase; letter-spacing: .03em;
+    }
+    .badge.active { background: rgba(34,197,94,.18); color: #86efac; }
+    .badge.expired { background: rgba(239,68,68,.18); color: #fca5a5; }
+    .badge.blocked { background: rgba(245,158,11,.18); color: #fcd34d; }
+    .badge.none { background: rgba(148,163,184,.18); color: #cbd5e1; }
+    .meta { font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 14px; }
+    .meta strong { color: #f4f4f8; font-weight: 600; }
+    .actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .code { font-family: ui-monospace, monospace; background: rgba(0,0,0,.35); padding: 2px 7px; border-radius: 6px; }
+    .empty { color: var(--muted); text-align: center; padding: 30px 0; }
+    @media (max-width: 560px) {
+      .wrap { padding: 12px; }
+      input[type=email], input[name=email], input[type=text] { min-width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Control de suscripciones</h1>
+      <div class="tz">Vencimientos en {{ tz }}</div>
+    </div>
+    <a href="{{ url_for('admin_logout') }}">Salir</a>
+  </header>
+
+  <div class="wrap">
+    {% if message %}<div class="flash ok">{{ message }}</div>{% endif %}
+    {% if error %}<div class="flash err">{{ error }}</div>{% endif %}
+
+    <div class="panel">
+      <h2>Agregar / actualizar suscriptor</h2>
+      <form class="inline" method="post" action="{{ url_for('admin_add') }}">
+        <input type="email" name="email" placeholder="correo@cliente.com" required>
+        <input type="date" name="expires" required>
+        <input type="text" name="note" placeholder="nota (opcional)">
+        <button class="primary" type="submit">Guardar</button>
+      </form>
+    </div>
+
+    <div class="panel">
+      <form class="inline" method="get" action="{{ url_for('admin') }}">
+        <input type="text" name="q" value="{{ query }}" placeholder="Buscar correo o nota...">
+        <button type="submit">Buscar</button>
+        {% if query %}<a href="{{ url_for('admin') }}">Limpiar</a>{% endif %}
+      </form>
+    </div>
+
+    <div class="cards">
+      {% for row in rows %}
+        <div class="sub {{ 'inactive' if not row.active else '' }}">
+          <div class="top">
+            <span class="email">{{ row.email }}</span>
+            <span class="badge {{ row.state }}">{{ row.state }}</span>
+            {% if row.status == 'BLOCKED' %}<span class="badge blocked">bloqueado</span>{% endif %}
+          </div>
+          <div class="meta">
+            <span>Vence: <strong>{{ row.expiry_label }}</strong></span>
+            <span>Días restantes: <strong>{{ row.days_left }}</strong></span>
+            {% if row.note %}<span>Nota: {{ row.note }}</span>{% endif %}
+            <span>Telegram:
+              {% if row.telegram_chat_id %}
+                <strong>{{ row.telegram_chat_id }}</strong>
+              {% else %}
+                sin vincular
+              {% endif %}
+            </span>
+            {% if row.link_code %}
+              <span>Vincular con: <span class="code">/vincular {{ row.link_code }}</span></span>
+            {% endif %}
+          </div>
+
+          <div class="actions">
+            <form class="inline" method="post" action="{{ url_for('admin_expiry') }}">
+              <input type="hidden" name="email" value="{{ row.email }}">
+              <input type="date" name="expires" value="{{ row.expiry_date }}" required>
+              <button type="submit">Fijar fecha</button>
+            </form>
+            <form class="inline" method="post" action="{{ url_for('admin_extend') }}">
+              <input type="hidden" name="email" value="{{ row.email }}">
+              <input type="hidden" name="days" value="30">
+              <button class="ok" type="submit">+30 días</button>
+            </form>
+            {% if row.status == 'BLOCKED' %}
+              <form class="inline" method="post" action="{{ url_for('admin_status') }}">
+                <input type="hidden" name="email" value="{{ row.email }}">
+                <input type="hidden" name="status" value="ACTIVE">
+                <button class="ok" type="submit">Activar</button>
+              </form>
+            {% else %}
+              <form class="inline" method="post" action="{{ url_for('admin_status') }}">
+                <input type="hidden" name="email" value="{{ row.email }}">
+                <input type="hidden" name="status" value="BLOCKED">
+                <button class="warn" type="submit">Bloquear</button>
+              </form>
+            {% endif %}
+            <form class="inline" method="post" action="{{ url_for('admin_link_code') }}">
+              <input type="hidden" name="email" value="{{ row.email }}">
+              <button type="submit">Generar código Telegram</button>
+            </form>
+            <form class="inline" method="post" action="{{ url_for('admin_chat') }}">
+              <input type="hidden" name="email" value="{{ row.email }}">
+              <input type="text" name="chat_id" placeholder="chat_id" value="{{ row.telegram_chat_id or '' }}">
+              <button type="submit">Vincular chat</button>
+            </form>
+            <form class="inline" method="post" action="{{ url_for('admin_delete') }}"
+                  onsubmit="return confirm('¿Eliminar a {{ row.email }}?');">
+              <input type="hidden" name="email" value="{{ row.email }}">
+              <button class="danger" type="submit">Eliminar</button>
+            </form>
+          </div>
+        </div>
+      {% else %}
+        <div class="empty">No hay suscriptores{{ ' para esta búsqueda' if query else '' }}.</div>
+      {% endfor %}
+    </div>
+  </div>
+</body>
+</html>
