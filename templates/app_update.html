@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Actualizaciones de la app · Panel</title>
+  <style>
+    :root { color-scheme: dark; --line: rgba(255,255,255,.12); --muted: #b9b9c9; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      background: #0b0b14; color: #f4f4f8;
+    }
+    header {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--line);
+      background: linear-gradient(135deg, rgba(108,77,244,.22), rgba(15,118,110,.18));
+      position: sticky; top: 0; backdrop-filter: blur(8px); z-index: 2;
+    }
+    header h1 { font-size: 17px; margin: 0; }
+    header .tz { font-size: 11px; color: var(--muted); }
+    a { color: #a5b4fc; }
+    .wrap { max-width: 760px; margin: 0 auto; padding: 20px; }
+    .flash {
+      padding: 12px 14px; border-radius: 10px; margin-bottom: 14px; font-size: 13px;
+      word-break: break-word;
+    }
+    .flash.ok { background: rgba(34,197,94,.14); color: #86efac; border: 1px solid rgba(34,197,94,.3); }
+    .flash.err { background: rgba(239,68,68,.14); color: #fca5a5; border: 1px solid rgba(239,68,68,.3); }
+    .panel {
+      background: rgba(255,255,255,.05); border: 1px solid var(--line);
+      border-radius: 16px; padding: 16px; margin-bottom: 18px;
+    }
+    .panel h2 { font-size: 14px; margin: 0 0 12px; color: var(--muted); font-weight: 600; }
+    .inline { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    input, textarea {
+      padding: 9px 11px; border-radius: 9px; border: 1px solid var(--line);
+      background: rgba(0,0,0,.3); color: #fff; font-size: 13px;
+    }
+    input[type=text] { min-width: 180px; flex: 1 1 180px; }
+    input[type=number] { min-width: 150px; }
+    textarea { width: 100%; min-height: 90px; resize: vertical; font-family: inherit; }
+    button {
+      padding: 9px 13px; border: 0; border-radius: 9px; cursor: pointer;
+      font-size: 13px; font-weight: 600; background: #2b2b3d; color: #fff;
+    }
+    button.primary { background: linear-gradient(135deg, #6c4df4, #0f766e); }
+    .meta { font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 14px; }
+    .meta strong { color: #f4f4f8; font-weight: 600; }
+    .code { font-family: ui-monospace, monospace; background: rgba(0,0,0,.35); padding: 2px 7px; border-radius: 6px; word-break: break-all; }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Actualizaciones de la app</h1>
+      <div class="tz">Publica el APK y la app avisa a los clientes</div>
+    </div>
+    <div style="display:flex; gap:16px; align-items:center;">
+      <a href="{{ url_for('admin') }}">Suscriptores</a>
+      <a href="{{ url_for('admin_logout') }}">Salir</a>
+    </div>
+  </header>
+
+  <div class="wrap">
+    {% if message %}<div class="flash ok">{{ message }}</div>{% endif %}
+    {% if error %}<div class="flash err">{{ error }}</div>{% endif %}
+
+    <div class="panel">
+      <h2>Versión publicada</h2>
+      {% if current_update %}
+        <div class="meta" style="margin-bottom:8px;">
+          <span>Versión: <strong>v{{ current_update.versionName }}</strong></span>
+          <span>versionCode: <strong>{{ current_update.versionCode }}</strong></span>
+          <span>{{ 'Obligatoria' if current_update.force else 'Opcional' }}</span>
+        </div>
+        <div class="meta" style="margin-bottom:8px;">
+          <span>APK: <span class="code">{{ current_update.apkUrl }}</span></span>
+        </div>
+        <div class="meta" style="margin-bottom:8px;">
+          <span>Manifiesto: <span class="code">{{ public_base }}/app/update.json</span></span>
+        </div>
+        {% if current_update.changelog %}
+          <div class="meta"><span>Novedades: {{ current_update.changelog }}</span></div>
+        {% endif %}
+      {% else %}
+        <div class="meta">Aún no hay actualización publicada.</div>
+      {% endif %}
+    </div>
+
+    <div class="panel">
+      <h2>Publicar nueva versión</h2>
+      <form method="post" action="{{ url_for('app_publish') }}" enctype="multipart/form-data">
+        <div class="inline">
+          <input type="file" name="apk" accept=".apk,application/vnd.android.package-archive" required style="flex:1 1 260px;">
+          <input type="number" name="version_code" placeholder="versionCode (ej. 13)" min="1" required>
+          <input type="text" name="version_name" placeholder="versionName (ej. 1.1.2)" required>
+        </div>
+        <textarea name="changelog" placeholder="Novedades (opcional)" style="margin-top:10px;"></textarea>
+        <div class="inline" style="margin-top:10px;">
+          <label class="meta"><input type="checkbox" name="force" style="width:auto; min-width:auto; flex:none;"> Actualización obligatoria</label>
+          <button class="primary" type="submit">Publicar APK</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="panel">
+      <h2>URLs para la app</h2>
+      <div class="meta" style="margin-bottom:6px;">Manifiesto: <span class="code">{{ public_base }}/app/update.json</span></div>
+      <div class="meta">El APK se sirve desde <span class="code">{{ public_base }}/app/apk/</span></div>
+    </div>
+  </div>
+</body>
+</html>

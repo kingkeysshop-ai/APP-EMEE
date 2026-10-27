@@ -115,15 +115,15 @@ def root():
     return redirect(url_for("admin"))
 
 
-@app.route("/update.json")
-def update_json():
+@app.route("/app/update.json")
+def app_update_json():
     if not os.path.exists(UPDATE_FILE):
         return jsonify({"error": "sin actualizaciones publicadas"}), 404
     return send_file(UPDATE_FILE, mimetype="application/json", max_age=0)
 
 
-@app.route("/apk/<path:filename>")
-def update_apk(filename):
+@app.route("/app/apk/<path:filename>")
+def app_update_apk(filename):
     return send_from_directory(
         APK_DIR,
         filename,
@@ -300,7 +300,6 @@ def admin():
         tz=TZ_NAME,
         message=request.args.get("message"),
         error=request.args.get("error"),
-        current_update=_current_update(),
     )
 
 
@@ -364,9 +363,22 @@ def admin_bulk():
     return redirect(url_for("admin", **params))
 
 
-@app.route("/admin/update", methods=["POST"])
+@app.route("/app")
 @login_required
-def admin_update():
+def app_update():
+    return render_template(
+        "app_update.html",
+        current_update=_current_update(),
+        apk_dir=APK_DIR,
+        public_base=PUBLIC_BASE_URL,
+        message=request.args.get("message"),
+        error=request.args.get("error"),
+    )
+
+
+@app.route("/app/publish", methods=["POST"])
+@login_required
+def app_publish():
     upload = request.files.get("apk")
     version_text = request.form.get("version_code", "").strip()
     version_name = re.sub(r"[^0-9A-Za-z._-]", "-", request.form.get("version_name", "").strip())
@@ -374,24 +386,24 @@ def admin_update():
     force = request.form.get("force") == "on"
 
     if not upload or not upload.filename:
-        return redirect(url_for("admin", error="Selecciona un APK"))
+        return redirect(url_for("app_update", error="Selecciona un APK"))
     if not version_name:
-        return redirect(url_for("admin", error="versionName requerido"))
+        return redirect(url_for("app_update", error="versionName requerido"))
     try:
         version_code = int(version_text)
     except ValueError:
-        return redirect(url_for("admin", error="versionCode invalido"))
+        return redirect(url_for("app_update", error="versionCode invalido"))
 
     filename = f"emstore-v{version_name}.apk"
     target = os.path.join(APK_DIR, filename)
     upload.save(target)
     if not os.path.exists(target) or os.path.getsize(target) == 0:
-        return redirect(url_for("admin", error="No se pudo guardar el APK"))
+        return redirect(url_for("app_update", error="No se pudo guardar el APK"))
 
     payload = {
         "versionCode": version_code,
         "versionName": version_name,
-        "apkUrl": f"{PUBLIC_BASE_URL}/apk/{filename}",
+        "apkUrl": f"{PUBLIC_BASE_URL}/app/apk/{filename}",
         "force": force,
         "changelog": changelog or None,
     }
@@ -400,7 +412,7 @@ def admin_update():
 
     return redirect(
         url_for(
-            "admin",
+            "app_update",
             message=f"Actualizacion publicada: v{version_name} (code {version_code})",
         )
     )

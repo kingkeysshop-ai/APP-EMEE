@@ -82,7 +82,10 @@
       <h1>Control de suscripciones</h1>
       <div class="tz">Vencimientos en {{ tz }}</div>
     </div>
-    <a href="{{ url_for('admin_logout') }}">Salir</a>
+    <div style="display:flex; gap:16px; align-items:center;">
+      <a href="{{ url_for('app_update') }}">App</a>
+      <a href="{{ url_for('admin_logout') }}">Salir</a>
+    </div>
   </header>
 
   <div class="wrap">
@@ -107,30 +110,6 @@
           <input type="date" name="expires" required>
           <input type="text" name="note" placeholder="nota (opcional)">
           <button class="primary" type="submit">Guardar todos</button>
-        </div>
-      </form>
-    </details>
-
-    <details class="panel">
-      <summary>Publicar actualización de la app</summary>
-      {% if current_update %}
-        <div class="meta" style="margin-bottom:12px;">
-          <span>Publicada: <strong>v{{ current_update.versionName }}</strong> (code {{ current_update.versionCode }})</span>
-          <span>{{ 'Obligatoria' if current_update.force else 'Opcional' }}</span>
-        </div>
-      {% else %}
-        <div class="meta" style="margin-bottom:12px;">Aún no hay actualización publicada.</div>
-      {% endif %}
-      <form method="post" action="{{ url_for('admin_update') }}" enctype="multipart/form-data">
-        <div class="inline">
-          <input type="file" name="apk" accept=".apk,application/vnd.android.package-archive" required style="flex:1 1 260px;">
-          <input type="number" name="version_code" placeholder="versionCode (ej. 12)" min="1" required style="min-width:160px;">
-          <input type="text" name="version_name" placeholder="versionName (ej. 1.1.1)" required style="min-width:160px;">
-        </div>
-        <textarea name="changelog" placeholder="Novedades (opcional)" style="margin-top:10px; min-height:70px; font-family: inherit;"></textarea>
-        <div class="inline" style="margin-top:10px;">
-          <label class="meta"><input type="checkbox" name="force" style="width:auto; min-width:auto; flex:none;"> Actualización obligatoria</label>
-          <button class="primary" type="submit">Publicar APK</button>
         </div>
       </form>
     </details>
