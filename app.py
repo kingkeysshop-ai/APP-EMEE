@@ -1,5 +1,6 @@
 import hmac
 import os
+import re
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from functools import wraps
@@ -280,6 +281,50 @@ def admin_add():
         return redirect(url_for("admin", error="Fecha invalida"))
     db.upsert_subscriber(email, expires_at, note)
     return redirect(url_for("admin", message=f"Guardado: {email}"))
+
+
+@app.route("/admin/bulk", methods=["POST"])
+@login_required
+def admin_bulk():
+    raw = request.form.get("emails", "")
+    date_text = request.form.get("expires", "")
+    note = request.form.get("note", "").strip() or None
+    if not date_text:
+        return redirect(url_for("admin", error="Fecha invalida"))
+    try:
+        expires_at = end_of_day_ts(date_text)
+    except ValueError:
+        return redirect(url_for("admin", error="Fecha invalida"))
+
+    valid = []
+    invalid = []
+    seen = set()
+    for item in re.split(r"[\s,;]+", raw.strip()):
+        email = db.normalize_email(item)
+        if not email:
+            continue
+        if "@" not in email or email.startswith("@") or email.endswith("@"):
+            invalid.append(email)
+            continue
+        if email in seen:
+            continue
+        seen.add(email)
+        valid.append(email)
+
+    if not valid:
+        return redirect(url_for("admin", error="No hay correos validos en la lista"))
+
+    saved = db.bulk_upsert_subscribers(valid, expires_at, note)
+    params = {
+        "message": f"Carga masiva: {saved} suscriptores guardados hasta {fmt_date(expires_at)}"
+    }
+    if invalid:
+        muestra = ", ".join(invalid[:5])
+        extra = f" y {len(invalid) - 5} mas" if len(invalid) > 5 else ""
+        params["error"] = (
+            f"{len(invalid)} correos omitidos por invalidos: {muestra}{extra}"
+        )
+    return redirect(url_for("admin", **params))
 
 
 @app.route("/admin/expiry", methods=["POST"])

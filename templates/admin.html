@@ -33,11 +33,14 @@
     }
     .panel h2 { font-size: 14px; margin: 0 0 12px; color: var(--muted); font-weight: 600; }
     form.inline { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-    input, select {
+    input, select, textarea {
       padding: 9px 11px; border-radius: 9px; border: 1px solid var(--line);
       background: rgba(0,0,0,.3); color: #fff; font-size: 13px;
     }
     input[type=email], input[name=email], input[type=text] { min-width: 200px; flex: 1 1 200px; }
+    textarea { width: 100%; min-height: 120px; resize: vertical; font-family: ui-monospace, monospace; }
+    details summary { cursor: pointer; font-size: 14px; font-weight: 600; color: var(--muted); }
+    details[open] summary { margin-bottom: 12px; }
     button {
       padding: 9px 13px; border: 0; border-radius: 9px; cursor: pointer;
       font-size: 13px; font-weight: 600; background: #2b2b3d; color: #fff;
@@ -95,6 +98,18 @@
         <button class="primary" type="submit">Guardar</button>
       </form>
     </div>
+
+    <details class="panel">
+      <summary>Carga masiva de correos</summary>
+      <form method="post" action="{{ url_for('admin_bulk') }}">
+        <textarea name="emails" placeholder="Pega un correo por linea (tambien acepta separados por coma o espacio)&#10;cliente1@correo.com&#10;cliente2@correo.com" required></textarea>
+        <div class="inline" style="margin-top:10px;">
+          <input type="date" name="expires" required>
+          <input type="text" name="note" placeholder="nota (opcional)">
+          <button class="primary" type="submit">Guardar todos</button>
+        </div>
+      </form>
+    </details>
 
     <div class="panel">
       <form class="inline" method="get" action="{{ url_for('admin') }}">

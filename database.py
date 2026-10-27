@@ -92,6 +92,30 @@ def upsert_subscriber(email, expires_at, note=None):
         )
 
 
+def bulk_upsert_subscribers(emails, expires_at, note=None):
+    stamp = now_iso()
+    rows = [
+        (normalize_email(email), int(expires_at), note, stamp, stamp)
+        for email in emails
+        if normalize_email(email)
+    ]
+    if not rows:
+        return 0
+    with _conn() as conn:
+        conn.executemany(
+            """
+            INSERT INTO subscribers (email, expires_at, status, note, created_at, updated_at)
+            VALUES (?, ?, 'ACTIVE', ?, ?, ?)
+            ON CONFLICT(email) DO UPDATE SET
+                expires_at = excluded.expires_at,
+                note = COALESCE(excluded.note, subscribers.note),
+                updated_at = excluded.updated_at
+            """,
+            rows,
+        )
+    return len(rows)
+
+
 def set_expiry(email, expires_at):
     email = normalize_email(email)
     with _conn() as conn:
