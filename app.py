@@ -1,4 +1,5 @@
 import hmac
+import json
 import os
 import re
 import sqlite3
@@ -12,6 +13,8 @@ from flask import (
     redirect,
     render_template,
     request,
+    send_file,
+    send_from_directory,
     session,
     url_for,
 )
@@ -36,6 +39,14 @@ app.config.update(
 )
 
 db.init_db()
+
+DATA_DIR = os.path.dirname(db.DB_PATH) or os.getcwd()
+APK_DIR = os.environ.get("APK_DIR", os.path.join(DATA_DIR, "apk"))
+UPDATE_FILE = os.path.join(DATA_DIR, "update.json")
+PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "https://em.cfynet.xyz").rstrip("/")
+os.makedirs(APK_DIR, exist_ok=True)
+
+app.config["MAX_CONTENT_LENGTH"] = 120 * 1024 * 1024
 
 
 def service_key_configured():
@@ -102,6 +113,23 @@ def health():
 @app.route("/")
 def root():
     return redirect(url_for("admin"))
+
+
+@app.route("/update.json")
+def update_json():
+    if not os.path.exists(UPDATE_FILE):
+        return jsonify({"error": "sin actualizaciones publicadas"}), 404
+    return send_file(UPDATE_FILE, mimetype="application/json", max_age=0)
+
+
+@app.route("/apk/<path:filename>")
+def update_apk(filename):
+    return send_from_directory(
+        APK_DIR,
+        filename,
+        mimetype="application/vnd.android.package-archive",
+        as_attachment=False,
+    )
 
 
 @app.route("/authorize", methods=["POST"])
@@ -252,6 +280,14 @@ def _build_rows(query):
     return rows
 
 
+def _current_update():
+    try:
+        with open(UPDATE_FILE, encoding="utf-8") as fh:
+            return json.load(fh)
+    except Exception:
+        return None
+
+
 @app.route("/admin")
 @login_required
 def admin():
@@ -264,6 +300,7 @@ def admin():
         tz=TZ_NAME,
         message=request.args.get("message"),
         error=request.args.get("error"),
+        current_update=_current_update(),
     )
 
 
@@ -325,6 +362,48 @@ def admin_bulk():
             f"{len(invalid)} correos omitidos por invalidos: {muestra}{extra}"
         )
     return redirect(url_for("admin", **params))
+
+
+@app.route("/admin/update", methods=["POST"])
+@login_required
+def admin_update():
+    upload = request.files.get("apk")
+    version_text = request.form.get("version_code", "").strip()
+    version_name = re.sub(r"[^0-9A-Za-z._-]", "-", request.form.get("version_name", "").strip())
+    changelog = request.form.get("changelog", "").strip()
+    force = request.form.get("force") == "on"
+
+    if not upload or not upload.filename:
+        return redirect(url_for("admin", error="Selecciona un APK"))
+    if not version_name:
+        return redirect(url_for("admin", error="versionName requerido"))
+    try:
+        version_code = int(version_text)
+    except ValueError:
+        return redirect(url_for("admin", error="versionCode invalido"))
+
+    filename = f"emstore-v{version_name}.apk"
+    target = os.path.join(APK_DIR, filename)
+    upload.save(target)
+    if not os.path.exists(target) or os.path.getsize(target) == 0:
+        return redirect(url_for("admin", error="No se pudo guardar el APK"))
+
+    payload = {
+        "versionCode": version_code,
+        "versionName": version_name,
+        "apkUrl": f"{PUBLIC_BASE_URL}/apk/{filename}",
+        "force": force,
+        "changelog": changelog or None,
+    }
+    with open(UPDATE_FILE, "w", encoding="utf-8") as fh:
+        json.dump(payload, fh, ensure_ascii=False, indent=2)
+
+    return redirect(
+        url_for(
+            "admin",
+            message=f"Actualizacion publicada: v{version_name} (code {version_code})",
+        )
+    )
 
 
 @app.route("/admin/expiry", methods=["POST"])
