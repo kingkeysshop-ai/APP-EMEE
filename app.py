@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 
 from flask import (
     Flask,
+    abort,
     jsonify,
     redirect,
     render_template,
@@ -40,13 +41,30 @@ app.config.update(
 
 db.init_db()
 
+APP_UPDATES_ENABLED = os.environ.get("APP_UPDATES_ENABLED", "false").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
+
 DATA_DIR = os.path.dirname(db.DB_PATH) or os.getcwd()
 APK_DIR = os.environ.get("APK_DIR", os.path.join(DATA_DIR, "apk"))
 UPDATE_FILE = os.path.join(DATA_DIR, "update.json")
 PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "https://em.cfynet.xyz").rstrip("/")
-os.makedirs(APK_DIR, exist_ok=True)
+if APP_UPDATES_ENABLED:
+    os.makedirs(APK_DIR, exist_ok=True)
 
 app.config["MAX_CONTENT_LENGTH"] = 120 * 1024 * 1024
+
+
+def require_app_updates(view):
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if not APP_UPDATES_ENABLED:
+            abort(404)
+        return view(*args, **kwargs)
+
+    return wrapped
 
 
 def service_key_configured():
@@ -116,6 +134,7 @@ def root():
 
 
 @app.route("/app/update.json")
+@require_app_updates
 def app_update_json():
     if not os.path.exists(UPDATE_FILE):
         return jsonify({"error": "sin actualizaciones publicadas"}), 404
@@ -123,6 +142,7 @@ def app_update_json():
 
 
 @app.route("/app/apk/<path:filename>")
+@require_app_updates
 def app_update_apk(filename):
     return send_from_directory(
         APK_DIR,
@@ -298,6 +318,7 @@ def admin():
         query=query,
         now=db.now_ts(),
         tz=TZ_NAME,
+        app_updates_enabled=APP_UPDATES_ENABLED,
         message=request.args.get("message"),
         error=request.args.get("error"),
     )
@@ -364,6 +385,7 @@ def admin_bulk():
 
 
 @app.route("/app")
+@require_app_updates
 @login_required
 def app_update():
     return render_template(
@@ -377,6 +399,7 @@ def app_update():
 
 
 @app.route("/app/publish", methods=["POST"])
+@require_app_updates
 @login_required
 def app_publish():
     upload = request.files.get("apk")

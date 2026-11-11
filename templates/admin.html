@@ -83,7 +83,7 @@
       <div class="tz">Vencimientos en {{ tz }}</div>
     </div>
     <div style="display:flex; gap:16px; align-items:center;">
-      <a href="{{ url_for('app_update') }}">App</a>
+      {% if app_updates_enabled %}<a href="{{ url_for('app_update') }}">App</a>{% endif %}
       <a href="{{ url_for('admin_logout') }}">Salir</a>
     </div>
   </header>
