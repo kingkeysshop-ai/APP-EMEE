@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LibreTunnel · OTA y Servidores</title>
+  <style>
+    :root { color-scheme: dark; --line: rgba(255,255,255,.12); --muted: #b9b9c9; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      background: #0b0b14; color: #f4f4f8;
+    }
+    header {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--line);
+      background: linear-gradient(135deg, rgba(13,148,136,.25), rgba(15,118,110,.18));
+      position: sticky; top: 0; backdrop-filter: blur(8px); z-index: 2;
+    }
+    header h1 { font-size: 17px; margin: 0; }
+    header .tz { font-size: 11px; color: var(--muted); }
+    a { color: #5eead4; }
+    .wrap { max-width: 860px; margin: 0 auto; padding: 20px; }
+    .flash {
+      padding: 12px 14px; border-radius: 10px; margin-bottom: 14px; font-size: 13px;
+      word-break: break-word;
+    }
+    .flash.ok { background: rgba(34,197,94,.14); color: #86efac; border: 1px solid rgba(34,197,94,.3); }
+    .flash.err { background: rgba(239,68,68,.14); color: #fca5a5; border: 1px solid rgba(239,68,68,.3); }
+    .panel {
+      background: rgba(255,255,255,.05); border: 1px solid var(--line);
+      border-radius: 16px; padding: 16px; margin-bottom: 18px;
+    }
+    .panel h2 { font-size: 14px; margin: 0 0 12px; color: var(--muted); font-weight: 600; }
+    .inline { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    input, textarea {
+      padding: 9px 11px; border-radius: 9px; border: 1px solid var(--line);
+      background: rgba(0,0,0,.3); color: #fff; font-size: 13px;
+    }
+    input[type=text] { min-width: 180px; flex: 1 1 180px; }
+    input[type=number] { min-width: 150px; }
+    textarea { width: 100%; min-height: 110px; resize: vertical; font-family: ui-monospace, monospace; }
+    button {
+      padding: 9px 14px; border: 0; border-radius: 9px; cursor: pointer;
+      font-size: 13px; font-weight: 600; background: #2b2b3d; color: #fff;
+    }
+    button.primary { background: linear-gradient(135deg, #0d9488, #0f766e); }
+    .meta { font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 14px; }
+    .meta strong { color: #f4f4f8; font-weight: 600; }
+    .code { font-family: ui-monospace, monospace; background: rgba(0,0,0,.35); padding: 2px 7px; border-radius: 6px; word-break: break-all; }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>LibreTunnel · OTA y Servidores</h1>
+      <div class="tz">Publica APK firmado (SHA-256 automático) y catálogo remoto de perfiles</div>
+    </div>
+    <div style="display:flex; gap:16px; align-items:center;">
+      <a href="{{ url_for('admin') }}">Suscriptores</a>
+      <a href="{{ url_for('admin_logout') }}">Salir</a>
+    </div>
+  </header>
+
+  <div class="wrap">
+    {% if message %}<div class="flash ok">{{ message }}</div>{% endif %}
+    {% if error %}<div class="flash err">{{ error }}</div>{% endif %}
+
+    <div class="panel">
+      <h2>Versión APK publicada</h2>
+      {% if current_update %}
+        <div class="meta" style="margin-bottom:8px;">
+          <span>Versión: <strong>v{{ current_update.versionName }}</strong></span>
+          <span>versionCode: <strong>{{ current_update.versionCode }}</strong></span>
+          <span>{{ 'Obligatoria' if current_update.force else 'Opcional' }}</span>
+        </div>
+        <div class="meta" style="margin-bottom:8px;">
+          <span>APK: <span class="code">{{ current_update.apkUrl }}</span></span>
+        </div>
+        {% if current_update.sha256 %}
+          <div class="meta" style="margin-bottom:8px;">
+            <span>SHA-256: <span class="code">{{ current_update.sha256 }}</span></span>
+          </div>
+        {% endif %}
+        {% if current_update.changelog %}
+          <div class="meta"><span>Novedades: {{ current_update.changelog }}</span></div>
+        {% endif %}
+      {% else %}
+        <div class="meta">Aún no hay APK de LibreTunnel publicado (la app muestra "Al día").</div>
+      {% endif %}
+    </div>
+
+    <div class="panel">
+      <h2>Publicar nuevo APK de LibreTunnel</h2>
+      <form method="post" action="{{ url_for('libretunnel_publish') }}" enctype="multipart/form-data">
+        <div class="inline">
+          <input type="file" name="apk" accept=".apk,application/vnd.android.package-archive" required style="flex:1 1 260px;">
+          <input type="number" name="version_code" placeholder="versionCode (ej. 2)" min="1" required>
+          <input type="text" name="version_name" placeholder="versionName (ej. 1.0.1)" required>
+        </div>
+        <textarea name="changelog" placeholder="Novedades (opcional)" style="margin-top:10px;"></textarea>
+        <div class="inline" style="margin-top:10px;">
+          <label class="meta"><input type="checkbox" name="force" style="width:auto; min-width:auto; flex:none;"> Actualización obligatoria</label>
+          <button class="primary" type="submit">Publicar APK</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="panel">
+      <h2>Catálogo remoto de servidores</h2>
+      <div class="meta" style="margin-bottom:10px;">
+        <span>Endpoint: <span class="code">{{ public_base }}/libretunnel/servers.json</span></span>
+        {% if servers_updated_at %}
+          <span>Entradas: <strong>{{ servers_count }}</strong></span>
+          <span>Actualizado: <strong>{{ servers_updated_at }}</strong></span>
+        {% endif %}
+      </div>
+      <form method="post" action="{{ url_for('libretunnel_servers_save') }}">
+        <textarea name="servers_raw" style="min-height:190px;" placeholder='Acepta:
+1) JSON: {"servers": [{"name": "Miami VLESS", "uri": "vless://..."}, {"name": "SSH WS", "mode": "SSH", "host": "tu-vps.com", "port": 443, "username": "user", "transportMode": "WEBSOCKET"}]}
+2) Varias líneas URI (vless://, vmess://, trojan://, ss://, hy2://, wg://)
+3) Archivo WireGuard .conf o suscripción Base64'>{{ servers_raw }}</textarea>
+        <div class="inline" style="margin-top:10px;">
+          <label class="meta">
+            <input type="checkbox" name="require_auth" {% if servers_require_auth %}checked{% endif %} style="width:auto; min-width:auto; flex:none;">
+            Exigir suscripción activa (Bearer token de Supabase)
+          </label>
+          <button class="primary" type="submit">Guardar catálogo</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="panel">
+      <h2>Endpoints configurados en LibreTunnel</h2>
+      <div class="meta" style="margin-bottom:6px;">UPDATE_URL: <span class="code">{{ public_base }}/libretunnel/update.json</span></div>
+      <div class="meta">REMOTE_PROFILES_URL: <span class="code">{{ public_base }}/libretunnel/servers.json</span></div>
+    </div>
+  </div>
+</body>
+</html>

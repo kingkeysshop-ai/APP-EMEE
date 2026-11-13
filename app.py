@@ -1,3 +1,4 @@
+import hashlib
 import hmac
 import json
 import os
@@ -9,6 +10,7 @@ from zoneinfo import ZoneInfo
 
 from flask import (
     Flask,
+    Response,
     abort,
     jsonify,
     redirect,
@@ -21,7 +23,7 @@ from flask import (
 )
 
 import database as db
-from supabase_auth import verify_token
+from supabase_auth import is_supabase_staff, verify_token, verify_token_user
 
 TZ_NAME = os.environ.get("TZ_NAME", "America/Bogota")
 LOCAL_TZ = ZoneInfo(TZ_NAME)
@@ -50,11 +52,17 @@ APP_UPDATES_ENABLED = os.environ.get("APP_UPDATES_ENABLED", "false").strip().low
 DATA_DIR = os.path.dirname(db.DB_PATH) or os.getcwd()
 APK_DIR = os.environ.get("APK_DIR", os.path.join(DATA_DIR, "apk"))
 UPDATE_FILE = os.path.join(DATA_DIR, "update.json")
+LT_APK_DIR = os.environ.get("LT_APK_DIR", os.path.join(DATA_DIR, "libretunnel_apk"))
+LT_UPDATE_FILE = os.path.join(DATA_DIR, "libretunnel_update.json")
+LT_SERVERS_FILE = os.path.join(DATA_DIR, "libretunnel_servers.json")
+MEDIA_DIR = os.environ.get("MEDIA_DIR", os.path.join(DATA_DIR, "product_images"))
 PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "https://em.cfynet.xyz").rstrip("/")
 if APP_UPDATES_ENABLED:
     os.makedirs(APK_DIR, exist_ok=True)
+os.makedirs(LT_APK_DIR, exist_ok=True)
+os.makedirs(MEDIA_DIR, exist_ok=True)
 
-app.config["MAX_CONTENT_LENGTH"] = 120 * 1024 * 1024
+app.config["MAX_CONTENT_LENGTH"] = 150 * 1024 * 1024
 
 
 def require_app_updates(view):
@@ -150,6 +158,157 @@ def app_update_apk(filename):
         mimetype="application/vnd.android.package-archive",
         as_attachment=False,
     )
+
+
+def _read_json_file(path):
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return json.load(fh)
+    except Exception:
+        return None
+
+
+def _file_sha256(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(65536), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+@app.route("/libretunnel/update.json")
+def libretunnel_update_json():
+    if not os.path.exists(LT_UPDATE_FILE):
+        return jsonify({"error": "sin actualizaciones publicadas"}), 404
+    return send_file(LT_UPDATE_FILE, mimetype="application/json", max_age=0)
+
+
+@app.route("/libretunnel/apk/<path:filename>")
+def libretunnel_update_apk(filename):
+    return send_from_directory(
+        LT_APK_DIR,
+        filename,
+        mimetype="application/vnd.android.package-archive",
+        as_attachment=False,
+    )
+
+
+@app.route("/libretunnel/servers.json")
+def libretunnel_servers_json():
+    data = _read_json_file(LT_SERVERS_FILE)
+    if not data:
+        return jsonify({"error": "catálogo remoto no publicado"}), 404
+
+    if data.get("require_auth"):
+        token = bearer_token()
+        if not token:
+            return jsonify({"error": "missing_token"}), 401
+        email, user_id = verify_token_user(token)
+        if not email:
+            return jsonify({"error": "invalid_token"}), 401
+        subscriber = db.get_subscriber(email)
+        active = db.subscription_state(subscriber) == "active"
+        if not active and not is_supabase_staff(token, user_id):
+            return jsonify({"error": "subscription_required"}), 403
+
+    if data.get("format") == "raw":
+        resp = Response(data.get("raw", ""), mimetype="text/plain; charset=utf-8")
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
+
+    resp = jsonify({"servers": data.get("servers", []), "updatedAt": data.get("updated_at")})
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
+def is_staff_authorized():
+    if session.get("admin_logged"):
+        return True
+    if service_key_ok():
+        return True
+    token = bearer_token()
+    if token:
+        email, user_id = verify_token_user(token)
+        if email and user_id and is_supabase_staff(token, user_id):
+            return True
+    return False
+
+
+@app.route("/media/products/<path:filename>", methods=["GET"])
+def media_product_get(filename):
+    safe_name = os.path.basename(filename)
+    file_path = os.path.join(MEDIA_DIR, safe_name)
+    if not os.path.isfile(file_path):
+        return jsonify({"error": "image_not_found"}), 404
+
+    lower = safe_name.lower()
+    mimetype = "image/jpeg"
+    if lower.endswith(".png"):
+        mimetype = "image/png"
+    elif lower.endswith(".webp"):
+        mimetype = "image/webp"
+    elif lower.endswith(".svg"):
+        mimetype = "image/svg+xml"
+
+    resp = send_from_directory(MEDIA_DIR, safe_name, mimetype=mimetype, max_age=86400)
+    resp.headers["Access-Control-Allow-Origin"] = "*"
+    return resp
+
+
+@app.route("/media/products/<path:productId>", methods=["POST"])
+def media_product_upload(productId):
+    if not is_staff_authorized():
+        return (
+            jsonify({
+                "error": "unauthorized",
+                "message": "Se requiere rol de administrador o revendedor",
+            }),
+            403,
+        )
+
+    safe_pid = re.sub(r"[^0-9A-Za-z._-]", "-", os.path.basename(productId)).strip(".-")
+    if not safe_pid:
+        return jsonify({"error": "invalid_product_id"}), 400
+
+    upload = request.files.get("image") or request.files.get("file")
+    if upload:
+        data = upload.read()
+    else:
+        data = request.get_data()
+
+    if not data or len(data) < 10:
+        return jsonify({"error": "empty_file", "message": "Archivo de imagen vacío"}), 400
+
+    if len(data) > 20 * 1024 * 1024:
+        return jsonify({"error": "file_too_large", "message": "Imagen demasiado pesada (máx 20MB)"}), 413
+
+    filename = f"{safe_pid}.jpg"
+    dest_path = os.path.join(MEDIA_DIR, filename)
+    tmp_path = dest_path + ".tmp"
+    with open(tmp_path, "wb") as fh:
+        fh.write(data)
+    os.replace(tmp_path, dest_path)
+
+    public_url = f"{PUBLIC_BASE_URL}/media/products/{filename}"
+    return jsonify({
+        "ok": True,
+        "url": public_url,
+        "productId": safe_pid,
+        "bytes": len(data),
+    }), 200
+
+
+@app.route("/media/products/<path:productId>", methods=["DELETE"])
+def media_product_delete(productId):
+    if not is_staff_authorized():
+        return jsonify({"error": "unauthorized"}), 403
+
+    safe_pid = re.sub(r"[^0-9A-Za-z._-]", "-", os.path.basename(productId)).strip(".-")
+    filename = f"{safe_pid}.jpg"
+    dest_path = os.path.join(MEDIA_DIR, filename)
+    if os.path.isfile(dest_path):
+        os.remove(dest_path)
+    return jsonify({"ok": True}), 200
 
 
 @app.route("/authorize", methods=["POST"])
@@ -439,6 +598,126 @@ def app_publish():
             message=f"Actualizacion publicada: v{version_name} (code {version_code})",
         )
     )
+
+
+@app.route("/admin/libretunnel")
+@login_required
+def libretunnel_panel():
+    servers_meta = _read_json_file(LT_SERVERS_FILE) or {}
+    return render_template(
+        "libretunnel.html",
+        current_update=_read_json_file(LT_UPDATE_FILE),
+        servers_raw=servers_meta.get("raw", ""),
+        servers_require_auth=bool(servers_meta.get("require_auth", False)),
+        servers_count=servers_meta.get("count", 0),
+        servers_updated_at=servers_meta.get("updated_at"),
+        public_base=PUBLIC_BASE_URL,
+        message=request.args.get("message"),
+        error=request.args.get("error"),
+    )
+
+
+@app.route("/admin/libretunnel/publish", methods=["POST"])
+@login_required
+def libretunnel_publish():
+    upload = request.files.get("apk")
+    version_text = request.form.get("version_code", "").strip()
+    version_name = re.sub(r"[^0-9A-Za-z._-]", "-", request.form.get("version_name", "").strip())
+    changelog = request.form.get("changelog", "").strip()
+    force = request.form.get("force") == "on"
+
+    if not upload or not upload.filename:
+        return redirect(url_for("libretunnel_panel", error="Selecciona un APK de LibreTunnel"))
+    if not version_name:
+        return redirect(url_for("libretunnel_panel", error="versionName requerido"))
+    try:
+        version_code = int(version_text)
+    except ValueError:
+        return redirect(url_for("libretunnel_panel", error="versionCode invalido"))
+
+    filename = f"libretunnel-v{version_name}.apk"
+    target = os.path.join(LT_APK_DIR, filename)
+    upload.save(target)
+    if not os.path.exists(target) or os.path.getsize(target) == 0:
+        return redirect(url_for("libretunnel_panel", error="No se pudo guardar el APK"))
+
+    sha256_hex = _file_sha256(target)
+    payload = {
+        "packageId": "io.libretunnel.app",
+        "versionCode": version_code,
+        "versionName": version_name,
+        "apkUrl": f"{PUBLIC_BASE_URL}/libretunnel/apk/{filename}",
+        "sha256": sha256_hex,
+        "force": force,
+        "changelog": changelog or None,
+    }
+    with open(LT_UPDATE_FILE, "w", encoding="utf-8") as fh:
+        json.dump(payload, fh, ensure_ascii=False, indent=2)
+
+    return redirect(
+        url_for(
+            "libretunnel_panel",
+            message=f"LibreTunnel v{version_name} (code {version_code}) publicado · SHA-256 {sha256_hex[:12]}…",
+        )
+    )
+
+
+@app.route("/admin/libretunnel/servers", methods=["POST"])
+@login_required
+def libretunnel_servers_save():
+    raw = request.form.get("servers_raw", "").strip()
+    require_auth = request.form.get("require_auth") == "on"
+
+    if not raw:
+        if os.path.exists(LT_SERVERS_FILE):
+            os.remove(LT_SERVERS_FILE)
+        return redirect(url_for("libretunnel_panel", message="Catálogo remoto limpiado"))
+
+    if raw.startswith("{") or raw.startswith("["):
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            return redirect(url_for("libretunnel_panel", error=f"JSON inválido: {exc.msg}"))
+        if isinstance(parsed, list):
+            servers = parsed
+        elif isinstance(parsed, dict):
+            servers = parsed.get("servers") or parsed.get("profiles") or parsed.get("data")
+            if not isinstance(servers, list):
+                return redirect(
+                    url_for(
+                        "libretunnel_panel",
+                        error="El objeto JSON debe incluir lista 'servers', 'profiles' o 'data'",
+                    )
+                )
+        else:
+            return redirect(url_for("libretunnel_panel", error="JSON debe ser lista u objeto"))
+        payload = {
+            "format": "json",
+            "require_auth": require_auth,
+            "servers": servers,
+            "count": len(servers),
+            "raw": raw,
+            "updated_at": db.now_iso(),
+        }
+        msg = f"Catálogo JSON guardado ({len(servers)} servidor(es))"
+    else:
+        lines = [line.strip() for line in raw.splitlines() if line.strip() and not line.strip().startswith("#")]
+        if not lines:
+            return redirect(url_for("libretunnel_panel", error="No hay enlaces o configuración válida"))
+        count = 1 if "[Interface]" in raw and "[Peer]" in raw else len(lines)
+        payload = {
+            "format": "raw",
+            "require_auth": require_auth,
+            "count": count,
+            "raw": raw,
+            "updated_at": db.now_iso(),
+        }
+        msg = f"Catálogo texto/URI guardado ({count} entrada(s))"
+
+    with open(LT_SERVERS_FILE, "w", encoding="utf-8") as fh:
+        json.dump(payload, fh, ensure_ascii=False, indent=2)
+
+    return redirect(url_for("libretunnel_panel", message=msg))
 
 
 @app.route("/admin/expiry", methods=["POST"])
